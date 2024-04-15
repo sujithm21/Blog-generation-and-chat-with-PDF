@@ -1,0 +1,5 @@
+/.venv
+/.faiss_index
+/models
+/.env
+/faiss_index

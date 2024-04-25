@@ -13,13 +13,44 @@ from langchain_community.llms import CTransformers
 from collections import Counter
 import json
 
+# Load environment variables
 load_dotenv()
 os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
+# Set page-wide styles
+def set_styles():
+    st.markdown(
+        """
+        <style>
+        .block-container {
+            padding: 20px;
+            background-color: #00203FFF;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .block-header {
+            padding: 10px;
+            background-color: #4682B4;
+            color: white;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+        .block-content {
+            margin-top: 20px;
+            color: #1E0342 !important; /* Change text color to blue */
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown("<h1 style='color: #ADEFD1FF'>Blog Generation and PDF Chat Application</h1>", unsafe_allow_html=True)
+    
 
+
+
+# Function to extract text from PDF files
 def get_pdf_text(pdf_docs):
-    """Extract text from PDF files."""
     text = ""
     for pdf in pdf_docs:
         pdf_reader = PdfReader(pdf)
@@ -27,20 +58,20 @@ def get_pdf_text(pdf_docs):
             text += page.extract_text()
     return text
 
+# Function to split text into chunks
 def get_text_chunks(text):
-    """Split text into chunks."""
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
     chunks = text_splitter.split_text(text)
     return chunks
 
+# Function to generate vector store from text chunks
 def get_vector_store(text_chunks):
-    """Generate vector store from text chunks."""
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
     vector_store.save_local("faiss_index")
 
+# Function to handle user input and provide response
 def user_input(user_question):
-    """Handle user input and provide response."""
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     
     new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
@@ -55,36 +86,36 @@ def user_input(user_question):
 
     st.write("Reply: ", response["output_text"])
 
+# Function to extract vocabulary from text chunks
 def extract_vocabulary(text_chunks):
-    """Extract vocabulary from text chunks."""
     words = ' '.join(text_chunks).split()
     return set(words)
 
+# Function to extract term frequency from text chunks
 def extract_term_frequency(text_chunks):
-    """Extract term frequency from text chunks."""
     words = ' '.join(text_chunks).split()
     term_frequency = Counter(words)
     return term_frequency
 
+# Function to save vocabulary to a JSON file
 def save_vocabulary(vocabulary, file_path):
-    """Save vocabulary to a JSON file."""
     with open(file_path, 'w') as f:
         json.dump(list(vocabulary), f)
 
+# Function to save term frequency to a JSON file
 def save_term_frequency(term_frequency, file_path):
-    """Save term frequency to a JSON file."""
     with open(file_path, 'w') as f:
         json.dump(term_frequency, f)
 
+# Function to save vocabulary and term frequency statistics
 def save_statistics(text_chunks, vocabulary_file_path, term_frequency_file_path):
-    """Save vocabulary and term frequency statistics."""
     vocabulary = extract_vocabulary(text_chunks)
     term_frequency = extract_term_frequency(text_chunks)
     save_vocabulary(vocabulary, vocabulary_file_path)
     save_term_frequency(term_frequency, term_frequency_file_path)
 
+# Function to generate a blog based on input parameters
 def generate_blog(input_text, no_words, blog_style):
-    """Generate a blog based on input parameters."""
     llm = CTransformers(model='models/llama-2-7b-chat.ggmlv3.q8_0.bin',
                         model_type='llama',
                         config={'max_new_tokens': 256,
@@ -101,8 +132,8 @@ def generate_blog(input_text, no_words, blog_style):
     response = llm(prompt.format(blog_style=blog_style, input_text=input_text, no_words=no_words))
     return response
 
+# Function to get conversational chain for question answering
 def get_conversational_chain():
-    """Get conversational chain for question answering."""
     prompt_template = """
     Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
     provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
@@ -120,31 +151,32 @@ def get_conversational_chain():
 
     return chain
 
+# Main function
 def main():
-    """Main function."""
-    st.set_page_config("Chat PDF")
-    st.header("Welcome to Blog Generation and PDF Chat Application")
+    set_styles()
+    #st.title("Blog Generation and PDF Chat Application")
 
-    option = st.radio("Choose an option:", ("Generate Blog", "Interact with PDF via Chat"))
+    option = st.sidebar.radio("Choose an option:", ("Generate Blog", "Interact with PDF via Chat"))
 
     if option == "Generate Blog":
         st.subheader("Generate Blog 🤖")
 
         input_text = st.text_input("Enter the Blog Topic")
-
-        col1, col2 = st.columns([5, 5])
-        with col1:
-            no_words = st.text_input('No of Words')
-        with col2:
-            blog_style = st.selectbox('Writing the blog for', ('Researchers', 'Data Scientist', 'Common People'), index=0)
+        no_words = st.slider('No of Words', min_value=50, max_value=1000, value=250, step=50)
+        blog_style = st.selectbox('Writing the blog for', ('Researchers', 'Data Scientist', 'Common People'))
 
         submit = st.button("Generate Blog")
 
         if submit:
-            st.write(generate_blog(input_text, no_words, blog_style))
+            st.subheader("Generated Blog:")
+            st.markdown(f"### Topic: {input_text}")
+            st.markdown(
+                f'<div style="color: #ADEFD1FF">{generate_blog(input_text, no_words, blog_style)}</div>',
+                unsafe_allow_html=True
+            )
 
     elif option == "Interact with PDF via Chat":
-        st.subheader("Chat with PDF using Gemini💁")
+        st.subheader("Chat with PDF💬")
 
         user_question = st.text_input("Ask a Question from the PDF Files")
 
@@ -153,14 +185,15 @@ def main():
 
         with st.sidebar:
             st.title("Menu:")
-            pdf_docs = st.file_uploader("Upload your PDF Files and Click on the Submit & Process Button", accept_multiple_files=True)
-            if st.button("Submit & Process"):
-                with st.spinner("Processing..."):
-                    raw_text = get_pdf_text(pdf_docs)
-                    text_chunks = get_text_chunks(raw_text)
-                    get_vector_store(text_chunks)
-                    st.success("Done")
-                    save_statistics(text_chunks, 'vocabulary.json', 'term_frequency.json')
+            pdf_docs = st.file_uploader("Upload your PDF Files", accept_multiple_files=True)
+            if st.button("Process PDFs"):
+                if pdf_docs:
+                    with st.spinner("Processing PDFs..."):
+                        raw_text = get_pdf_text(pdf_docs)
+                        text_chunks = get_text_chunks(raw_text)
+                        get_vector_store(text_chunks)
+                        st.success("PDFs Processed Successfully")
+                        save_statistics(text_chunks, 'vocabulary.json', 'term_frequency.json')
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,4 @@
+# Import necessary libraries
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -12,13 +13,15 @@ from dotenv import load_dotenv
 from langchain_community.llms import CTransformers
 from collections import Counter
 import json
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
 # Load environment variables
 load_dotenv()
 os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Set page-wide styles
+# Function to set page-wide styles
 def set_styles():
     st.markdown(
         """
@@ -45,9 +48,6 @@ def set_styles():
         unsafe_allow_html=True
     )
     st.markdown("<h1 style='color: #ADEFD1FF'>Blog Generation and PDF Chat Application</h1>", unsafe_allow_html=True)
-    
-
-
 
 # Function to extract text from PDF files
 def get_pdf_text(pdf_docs):
@@ -71,20 +71,27 @@ def get_vector_store(text_chunks):
     vector_store.save_local("faiss_index")
 
 # Function to handle user input and provide response
-def user_input(user_question):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+def user_input(user_question, output_embeddings_file):
+    model = SentenceTransformer('bert-base-nli-mean-tokens')
     
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     docs = new_db.similarity_search(user_question)
 
     chain = get_conversational_chain()
-
     response = chain(
         {"input_documents": docs, "question": user_question},
         return_only_outputs=True
     )
 
-    st.write("Reply: ", response["output_text"])
+    output_text = response["output_text"]
+    output_embeddings = model.encode([output_text])[0]
+
+    # Save output embeddings to file
+    with open(output_embeddings_file, 'w') as f:
+        json.dump(output_embeddings.tolist(), f)
+
+    st.write("Reply: ", output_text)
 
 # Function to extract vocabulary from text chunks
 def extract_vocabulary(text_chunks):
@@ -122,9 +129,11 @@ def generate_blog(input_text, no_words, blog_style):
                                 'temperature': 0.01})
 
     template = """
-        Write a blog for {blog_style} job profile for a topic {input_text}
-        within {no_words} words.
-            """
+        Write an engaging and informative blog post targeting {blog_style} professionals on the topic of {input_text}. Aim for a length of approximately {no_words} words
+        Additionally, ensure the blog post includes:
+        An engaging introduction that hooks the reader and introduces the topic.
+        Well-structured and informative content that provides valuable insights for the target audience.
+        """
 
     prompt = PromptTemplate(input_variables=["blog_style", "input_text", 'no_words'],
                             template=template)
@@ -154,7 +163,6 @@ def get_conversational_chain():
 # Main function
 def main():
     set_styles()
-    #st.title("Blog Generation and PDF Chat Application")
 
     option = st.sidebar.radio("Choose an option:", ("Generate Blog", "Interact with PDF via Chat"))
 
@@ -181,19 +189,19 @@ def main():
         user_question = st.text_input("Ask a Question from the PDF Files")
 
         if user_question:
-            user_input(user_question)
+            output_embeddings_file = "output_embeddings.json"
+            user_input(user_question, output_embeddings_file)
 
         with st.sidebar:
             st.title("Menu:")
-            pdf_docs = st.file_uploader("Upload your PDF Files", accept_multiple_files=True)
-            if st.button("Process PDFs"):
-                if pdf_docs:
-                    with st.spinner("Processing PDFs..."):
-                        raw_text = get_pdf_text(pdf_docs)
-                        text_chunks = get_text_chunks(raw_text)
-                        get_vector_store(text_chunks)
-                        st.success("PDFs Processed Successfully")
-                        save_statistics(text_chunks, 'vocabulary.json', 'term_frequency.json')
+            pdf_docs = st.file_uploader("Upload your PDF Files and Click on the Submit & Process Button", accept_multiple_files=True)
+            if st.button("Submit & Process"):
+                with st.spinner("Processing..."):
+                    raw_text = get_pdf_text(pdf_docs)
+                    text_chunks = get_text_chunks(raw_text)
+                    get_vector_store(text_chunks)
+                    st.success("PDFs Processed Successfully")
+                    save_statistics(text_chunks, 'vocabulary.json', 'term_frequency.json')
 
 if __name__ == "__main__":
     main()
